@@ -16,7 +16,7 @@ iRamGoesForward = None # must have
 client = ModbusTcpClient(MASTER_IP, port=MODBUS_PORT)
 if not client.connect():
     print("Failed to connect to TBEN-S2-4IOL")
-    exit(1)
+    time.sleep(5)
 
 # Initialize variables
 sBaleNumber = 0 
