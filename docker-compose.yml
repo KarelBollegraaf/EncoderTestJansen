@@ -1,8 +1,11 @@
+version: "2.4"
 services:
   jansen_encoder:
-    build: .
-    image: jansen_encoder_modbus_connector:dev
+    image: ghcr.io/karelbollegraaf/encodertestjansen:latest
     container_name: jansen_encoder
+    restart: unless-stopped
+    mem_limit: 55mb
+    mem_reservation: 50mb
     environment:
       INFLUX_IP: "192.168.178.67"
       INFLUX_PORT: "8086"
@@ -15,4 +18,5 @@ services:
       POLL_INTERVAL: "0.1"
       WRITE_INTERVAL: "1.0"
       MEASUREMENT: "cooverden_encoder"
-    restart: always
+    # If the IEM is Linux and you want easiest LAN access:
+    # network_mode: host
