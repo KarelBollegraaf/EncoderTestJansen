@@ -1,0 +1,18 @@
+services:
+  jansen_encoder:
+    build: .
+    image: jansen_encoder_modbus_connector:dev
+    container_name: jansen_encoder
+    environment:
+      INFLUX_IP: "192.168.178.67"
+      INFLUX_PORT: "8086"
+      DB_NAME: "writetest"
+      ENCODER_IP: "192.168.1.250"
+      ENCODER_PORT: "502"
+      PLC_IP: "192.168.1.15"
+      PLC_PORT: "502"
+      PLC_DEVICE_ID: "1"
+      POLL_INTERVAL: "0.1"
+      WRITE_INTERVAL: "1.0"
+      MEASUREMENT: "cooverden_encoder"
+    restart: always
