@@ -1,4 +1,5 @@
 version: "2.4"
+
 services:
   jansen_encoder:
     image: ${IMAGE_NAME}
@@ -12,17 +13,24 @@ services:
       - encoder_data:/data
     environment:
       DB_PATH: /data/encoder.db
+
+      # Encoder
       ENCODER_IP: ${ENCODER_IP:-192.168.1.250}
-      ENCODER_PORT: ${ENCODER_PORT:-"502"}
+      ENCODER_PORT: ${ENCODER_PORT:-502}
+      POLL_INTERVAL: ${POLL_INTERVAL:-0.1}
+      ENCODER_TIMEOUT: ${ENCODER_TIMEOUT:-3}
+
+      # PLC Modbus
       PLC_IP: ${PLC_IP:-192.168.1.15}
-      PLC_PORT: ${PLC_PORT:-"502"}
-      PLC_DEVICE_ID: ${PLC_DEVICE_ID:-"1"}
-      PLC_POLL_SEC: ${PLC_POLL_SEC:-"0.1"}
-      POLL_INTERVAL: ${POLL_INTERVAL:-"0.1"}
+      PLC_PORT: ${PLC_PORT:-502}
+      PLC_DEVICE_ID: ${PLC_DEVICE_ID:-1}
+      PLC_POLL_SEC: ${PLC_POLL_SEC:-0.1}
+      PLC_TIMEOUT_SEC: ${PLC_TIMEOUT_SEC:-3}
+
+      # Health/watchdog
       HEARTBEAT_FILE: /tmp/collector_heartbeat.txt
-      WATCHDOG_STALE_SEC: "20"
-      HEALTH_STALE_SEC: "20"
-      ENCODER_TIMEOUT: "3"
+      WATCHDOG_STALE_SEC: 20
+      HEALTH_STALE_SEC: 20
 
 volumes:
   encoder_data:
