@@ -1,0 +1,18 @@
+{
+  "endpoints": [
+    {
+      "name": "Web UI",
+      "protocol": "http",
+      "port": 8000,
+      "path": "/",
+      "service": "jansen_encoder"
+    },
+    {
+      "name": "Health",
+      "protocol": "http",
+      "port": 8000,
+      "path": "/health",
+      "service": "jansen_encoder"
+    }
+  ]
+}

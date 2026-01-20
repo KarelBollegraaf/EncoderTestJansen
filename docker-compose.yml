@@ -2,7 +2,7 @@ version: "2.4"
 
 services:
   jansen_encoder:
-    image: "${IMAGE_NAME}"
+    image: "encodertestjansen:latest"
     container_name: jansen_encoder
     restart: unless-stopped
     mem_limit: 128m
