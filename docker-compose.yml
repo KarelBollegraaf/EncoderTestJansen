@@ -4,8 +4,8 @@ services:
     build: .
     container_name: jansen_encoder
     restart: unless-stopped
-    mem_limit: 55mb
-    mem_reservation: 50mb
+    mem_limit: 128mb
+    mem_reservation: 128mb
     ports:
       - "8000:8000"
     volumes:
