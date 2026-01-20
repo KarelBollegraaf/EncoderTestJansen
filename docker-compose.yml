@@ -1,7 +1,8 @@
 version: "2.4"
+
 services:
   jansen_encoder:
-    image: encoder-test-jansen:1.0.1
+    image: ${IMAGE_NAME:-encoder-test-jansen:1.0.1}
     container_name: jansen_encoder
     restart: unless-stopped
     mem_limit: 128m
@@ -12,12 +13,13 @@ services:
       - encoder_data:/data
     environment:
       DB_PATH: /data/encoder.db
-      ENCODER_IP: 192.168.1.250
-      ENCODER_PORT: "502"
-      PLC_IP: 192.168.1.15
-      PLC_PORT: "502"
-      PLC_DEVICE_ID: "1"
-      POLL_INTERVAL: "0.1"
+      ENCODER_IP: ${ENCODER_IP:-192.168.1.250}
+      ENCODER_PORT: ${ENCODER_PORT:-"502"}
+      PLC_IP: ${PLC_IP:-192.168.1.15}
+      PLC_PORT: ${PLC_PORT:-"502"}
+      PLC_DEVICE_ID: ${PLC_DEVICE_ID:-"1"}
+      PLC_POLL_SEC: ${PLC_POLL_SEC:-"0.1"}
+      POLL_INTERVAL: ${POLL_INTERVAL:-"0.1"}
       HEARTBEAT_FILE: /tmp/collector_heartbeat.txt
       WATCHDOG_STALE_SEC: "20"
       HEALTH_STALE_SEC: "20"
