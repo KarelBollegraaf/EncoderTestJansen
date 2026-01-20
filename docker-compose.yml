@@ -19,5 +19,11 @@ services:
       PLC_DEVICE_ID: "1"
       POLL_INTERVAL: "0.1"
 
+      # Stability / self-heal
+      HEARTBEAT_FILE: "/tmp/collector_heartbeat.txt"
+      WATCHDOG_STALE_SEC: "20"
+      HEALTH_STALE_SEC: "20"
+      ENCODER_TIMEOUT: "3"
+
 volumes:
   encoder_data:

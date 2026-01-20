@@ -2,163 +2,190 @@ from pymodbus.client import ModbusTcpClient
 from datetime import datetime
 import time
 import math
+import os
+
 from Modbus_TCPV3 import state
 from db import init_db, insert_sample
 
-MASTER_IP = "192.168.1.250"
-MODBUS_PORT = 502
-PDIN_BASE_ADDR = 0   
-WORD_COUNT = 16      
+# --- Config via environment (so it works on Edge/IEM too) ---
+MASTER_IP = os.getenv("ENCODER_IP", "192.168.1.250")
+MODBUS_PORT = int(os.getenv("ENCODER_PORT", "502"))
+POLL_INTERVAL = float(os.getenv("POLL_INTERVAL", "0.1"))
+
+PDIN_BASE_ADDR = 0
+WORD_COUNT = 16
+
+HEARTBEAT_FILE = os.getenv("HEARTBEAT_FILE", "/tmp/collector_heartbeat.txt")
+ENCODER_TIMEOUT = float(os.getenv("ENCODER_TIMEOUT", "3"))
 
 # Baler variables from PLC
-iBaleNumber = 0 # must have
-iRamGoesForward = None # must have
-
-client = ModbusTcpClient(MASTER_IP, port=MODBUS_PORT)
-if not client.connect():
-    print("Failed to connect to TBEN-S2-4IOL")
-    time.sleep(5)
+iBaleNumber = 0
+iRamGoesForward = False
 
 # Initialize variables
-sBaleNumber = 0 
+sBaleNumber = 0
 sReading = True
 sBaleReady = False
 sPreviousRamGoesForward = False
-sLast_angle = None
-sRounds = None
-sRoundCounter = 0
-sEncoderPrevious = None 
+
+sRounds = 0.0
+sRoundCounter = 0.0
+sEncoderPrevious = None
 sOneRoundRaw = 35999.0
-sEncoder_raw = 0
 sDistance = 0.0
-sBaleLength_Stroke = [0] * 10 # RAM to store bale lengths
+
+sBaleLength_Stroke = [0.0] * 10  # RAM to store bale lengths
 sBale_length_Encoder = 0.0
 sRounds_Encoder = 0.0
 sRamdistance = 0.0
 
 qBaleNumber = None
-qBale_length_Encoder = 0
-qBaleLength_Stroke = [0] * 10
+qBale_length_Encoder = 0.0
+qBaleLength_Stroke = [0.0] * 10
+
+def heartbeat():
+    # Update heartbeat every loop. If this stops updating, watchdog will restart container.
+    try:
+        with open(HEARTBEAT_FILE, "w") as f:
+            f.write(str(time.time()))
+    except Exception:
+        pass
+
+def make_encoder_client():
+    return ModbusTcpClient(MASTER_IP, port=MODBUS_PORT, timeout=ENCODER_TIMEOUT)
+
+client = None
 
 init_db()
 
-# Main loop
-try:
-    while True:
+while True:
+    heartbeat()
 
-        sBaleNumber = iBaleNumber if sBaleNumber is 0 else sBaleNumber
+    # Always keep loop alive (never crash out)
+    try:
+        # PLC variables from Modbus_TCPV3 background thread
+        iBaleNumber = int(state.BaleNumber)
+        iRamGoesForward = bool(state.RamGoesForward)
 
+        # Initialize sBaleNumber once from PLC if still 0
+        if sBaleNumber == 0:
+            sBaleNumber = iBaleNumber
 
-        # Baler variables from PLC
-        iBaleNumber = state.BaleNumber if not 0 else None # must have
-        iRamGoesForward = state.RamGoesForward
-
-        if iBaleNumber != sBaleNumber and sBaleNumber is not 0:
+        # Bale becomes "ready" when PLC bale number changes (and we already had a previous bale)
+        if (iBaleNumber != sBaleNumber) and (sBaleNumber != 0):
             sBaleReady = True
         else:
             sBaleReady = False
-        
-        # Read Bale status from PLC
-        if sBaleReady == True and iBaleNumber > 0:
+
+        # When bale finished -> snapshot + reset
+        if sBaleReady and iBaleNumber > 0:
             print("Bale is ready")
             print(f"sBaleReady: {sBaleReady}")
+
             sBale_length_Encoder = sDistance
             qBale_length_Encoder = sDistance
             sRounds_Encoder = round(sRounds, 2)
-            qBaleLength_Stroke[0] = sBaleLength_Stroke[0]
-            qBaleLength_Stroke[1] = sBaleLength_Stroke[1]
-            qBaleLength_Stroke[2] = sBaleLength_Stroke[2]
-            qBaleLength_Stroke[3] = sBaleLength_Stroke[3]
-            qBaleLength_Stroke[4] = sBaleLength_Stroke[4]
-            qBaleLength_Stroke[5] = sBaleLength_Stroke[5]
-            qBaleLength_Stroke[6] = sBaleLength_Stroke[6]
-            qBaleLength_Stroke[7] = sBaleLength_Stroke[7]
-            qBaleLength_Stroke[8] = sBaleLength_Stroke[8]
-            qBaleLength_Stroke[9] = sBaleLength_Stroke[9]
-            sBaleLength_Stroke = [0] * 10 # Clear RAM for next bale
+
+            # Copy stroke list into q list
+            qBaleLength_Stroke = sBaleLength_Stroke[:]
+
+            # Clear RAM for next bale
+            sBaleLength_Stroke = [0.0] * 10
+
             qBaleNumber = sBaleNumber
             sBaleNumber = iBaleNumber
+
             sReading = False
-            sRoundCounter = 0
+            sRoundCounter = 0.0
             sDistance = 0.0
             sRamdistance = 0.0
             sRounds = 0.0
-            
-            
-        elif sBaleReady == False:
-            sReading = True
-            # print("Bale not ready, started reading")
 
-        if sReading == True:
-            result = client.read_input_registers(address=PDIN_BASE_ADDR, count=WORD_COUNT)
-            if not result or not hasattr(result, "registers"):
-                print("Failed to read registers")
-                time.sleep(5)
+        elif not sBaleReady:
+            sReading = True
+
+        # --- Ensure encoder client connected (self-healing) ---
+        if client is None:
+            client = make_encoder_client()
+
+        if not client.connect():
+            # encoder unreachable right now
+            time.sleep(1.0)
+            continue
+
+        if sReading:
+            # Read encoder registers
+            try:
+                result = client.read_input_registers(address=PDIN_BASE_ADDR, count=WORD_COUNT)
+                if (not result) or (not hasattr(result, "registers")):
+                    raise RuntimeError("Failed to read registers")
+            except Exception as e:
+                print("Encoder read error:", e)
+                try:
+                    client.close()
+                except Exception:
+                    pass
+                client = None
+                time.sleep(1.0)
                 continue
 
-            
+            # Rising/falling edge detection of ram forward signal
+            if (iRamGoesForward is True) and (sPreviousRamGoesForward is False):  # Rising edge
+                sPreviousRamGoesForward = True
 
-            if (iRamGoesForward == True and sPreviousRamGoesForward == False): # Rising edge
-               sRamGoesForward = True 
-               sPreviousRamGoesForward = iRamGoesForward 
-            elif (iRamGoesForward == False and sPreviousRamGoesForward == True): # Falling edge
-                    sPreviousRamGoesForward = iRamGoesForward 
-                    sRamGoesForward = False
-                    if sBaleNumber == iBaleNumber:
-                        print("Set ram distance")
-                        time.sleep(3)  # wait for ram to stop
-                        sRamdistance = sDistance - sBaleLength_Stroke[0] - sBaleLength_Stroke[1] - sBaleLength_Stroke[2] - sBaleLength_Stroke[3] - sBaleLength_Stroke[4] - sBaleLength_Stroke[5] - sBaleLength_Stroke[6] - sBaleLength_Stroke[7] - sBaleLength_Stroke[8] - sBaleLength_Stroke[9]
-                        sRamdistance = round(sRamdistance, 2)
-                        for i in range(10):
-                            if sBaleLength_Stroke[i] == 0:
-                                sBaleLength_Stroke[i] = round(sRamdistance, 2)
-                                break  # exit after placing the distance
-                    
-            
+            elif (iRamGoesForward is False) and (sPreviousRamGoesForward is True):  # Falling edge
+                sPreviousRamGoesForward = False
 
-            # Read registers but do not process
-            words = result.registers  # list of 16 words
-            # Set time
+                # Store ram stroke length when falling edge happens
+                if sBaleNumber == iBaleNumber:
+                    print("Set ram distance")
+                    time.sleep(0.3)  # small settle time (was 3s; keep short to avoid "looks stuck")
+
+                    # distance since last strokes
+                    sRamdistance = sDistance - sum(sBaleLength_Stroke)
+                    sRamdistance = round(sRamdistance, 2)
+
+                    for i in range(10):
+                        if sBaleLength_Stroke[i] == 0:
+                            sBaleLength_Stroke[i] = sRamdistance
+                            break
+
+            # Process register data
+            words = result.registers
             timestamp = datetime.now()
 
-            # Word0: DI Input
-            di_input = "ON" if words[0] != 0 else "OFF"
-
-            # Word1: Data Valid
             data_valid = "YES" if words[1] != 0 else "NO"
 
-            # Word2 = Encoder raw position
-            encoder_raw = int(words[2]) # 16-bit encoder
-            if sEncoderPrevious == None:
+            encoder_raw = int(words[2])
+            if sEncoderPrevious is None:
                 sEncoderPrevious = encoder_raw
 
-            # Track difference with turn over adjusment
-            if sEncoderPrevious - encoder_raw > 30000:
-                sRoundCounter += sOneRoundRaw - sEncoderPrevious
+            # Track difference with turn-over adjustment
+            if (sEncoderPrevious - encoder_raw) > 30000:
+                sRoundCounter += (sOneRoundRaw - sEncoderPrevious)
                 sEncoderPrevious = 0
-            elif encoder_raw - sEncoderPrevious > 30000:
-                sRoundCounter -= sOneRoundRaw - encoder_raw
+            elif (encoder_raw - sEncoderPrevious) > 30000:
+                sRoundCounter -= (sOneRoundRaw - encoder_raw)
                 sEncoderPrevious = sOneRoundRaw
-            # track difference
+
             diff = encoder_raw - sEncoderPrevious
-            sRoundCounter += (diff)
+            sRoundCounter += diff
             sEncoderPrevious = encoder_raw
-                
-            # Calculate angle
-            angle_deg = (encoder_raw / sOneRoundRaw) * 360.0  
 
-
-            if sRounds == None:
-                sRounds = 0.0
-
-            sRounds = sRoundCounter / sOneRoundRaw    
-            sDistance = round((sRounds * math.pi * 23),2)
+            sRounds = sRoundCounter / sOneRoundRaw
+            sDistance = round((sRounds * math.pi * 23), 2)
             rounds = round(sRounds, 2)
 
             # Print results
-            print(f"{timestamp} | data_valid: {data_valid} | BaleNumber i/s: {sBaleNumber, iBaleNumber} | sBaleReady: {sBaleReady} | iRamGoesForward: {iRamGoesForward} | EncoderDisRaw: {words[2]:04d} |" 
-                f" Rounds: {rounds} | Distance: {sDistance} | sRamdistance: {sRamdistance} | StrokeLength: {sBaleLength_Stroke[:]} | qBaleNumber {state.BaleNumber} | qBale_Length: {qBale_length_Encoder} | qStrokeLength {qBaleLength_Stroke[:]}")
+            print(
+                f"{timestamp} | data_valid: {data_valid} | BaleNumber i/s: {(sBaleNumber, iBaleNumber)} | "
+                f"sBaleReady: {sBaleReady} | iRamGoesForward: {iRamGoesForward} | EncoderDisRaw: {words[2]:04d} | "
+                f"Rounds: {rounds} | Distance: {sDistance} | sRamdistance: {sRamdistance} | "
+                f"StrokeLength: {sBaleLength_Stroke[:]} | qBaleNumber {state.BaleNumber} | "
+                f"qBale_Length: {qBale_length_Encoder} | qStrokeLength {qBaleLength_Stroke[:]}"
+            )
 
+            # Store into SQLite
             insert_sample(
                 ts=timestamp,
                 data_valid=(data_valid == "YES"),
@@ -176,6 +203,10 @@ try:
                 q_stroke_list=[float(x) for x in qBaleLength_Stroke],
             )
 
-        time.sleep(0.1)
-finally:
-    client.close()
+        time.sleep(POLL_INTERVAL)
+
+    except Exception as e:
+        # Never stop working: print error and continue.
+        print("Main loop error:", e)
+        time.sleep(1.0)
+        continue

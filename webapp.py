@@ -1,11 +1,14 @@
-# webapp.py
 import os
 import json
 import sqlite3
+import time
+
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 
 DB_PATH = os.getenv("DB_PATH", "/data/encoder.db")
+HEARTBEAT_FILE = os.getenv("HEARTBEAT_FILE", "/tmp/collector_heartbeat.txt")
+HEALTH_STALE_SEC = float(os.getenv("HEALTH_STALE_SEC", "20"))
 
 app = FastAPI()
 
@@ -13,6 +16,17 @@ def _connect():
     con = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
     con.row_factory = sqlite3.Row
     return con
+
+@app.get("/health")
+def health():
+    try:
+        mtime = os.path.getmtime(HEARTBEAT_FILE)
+        age = time.time() - mtime
+        return {"ok": age <= HEALTH_STALE_SEC, "age_sec": round(age, 2)}
+    except FileNotFoundError:
+        return {"ok": False, "reason": "no_heartbeat"}
+    except Exception as e:
+        return {"ok": False, "reason": str(e)}
 
 @app.get("/", response_class=HTMLResponse)
 def index():
@@ -28,8 +42,9 @@ def index():
     table { border-collapse: collapse; width: 100%; font-size: 12px; }
     th, td { border: 1px solid #ddd; padding: 6px; vertical-align: top; }
     th { position: sticky; top: 0; background: #f7f7f7; }
-    .row { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+    .row { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
     input { padding: 6px; }
+    .pill { padding: 3px 8px; border: 1px solid #ddd; border-radius: 999px; }
   </style>
 </head>
 <body>
@@ -38,6 +53,7 @@ def index():
     <label>Limit <input id="limit" type="number" value="200" min="1" max="5000"/></label>
     <label>Bale # <input id="bale" type="number" placeholder="optional"/></label>
     <button onclick="load()">Refresh</button>
+    <span class="pill" id="health">health: ...</span>
     <span id="status"></span>
   </div>
 
@@ -64,6 +80,16 @@ def index():
   </table>
 
 <script>
+async function loadHealth() {
+  try {
+    const r = await fetch("/health");
+    const j = await r.json();
+    document.getElementById("health").textContent = j.ok ? `health: OK (age ${j.age_sec}s)` : `health: BAD`;
+  } catch {
+    document.getElementById("health").textContent = "health: error";
+  }
+}
+
 async function load() {
   const limit = document.getElementById("limit").value || 200;
   const bale = document.getElementById("bale").value;
@@ -98,8 +124,11 @@ async function load() {
   }
   document.getElementById("status").textContent = `${rows.length} rows`;
 }
+
 load();
+loadHealth();
 setInterval(load, 2000);
+setInterval(loadHealth, 2000);
 </script>
 </body>
 </html>
