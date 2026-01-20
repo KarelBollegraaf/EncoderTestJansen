@@ -3,6 +3,7 @@ from datetime import datetime
 import time
 import math
 from Modbus_TCPV3 import state
+from db import init_db, insert_sample
 
 MASTER_IP = "192.168.1.250"
 MODBUS_PORT = 502
@@ -38,6 +39,8 @@ sRamdistance = 0.0
 qBaleNumber = None
 qBale_length_Encoder = 0
 qBaleLength_Stroke = [0] * 10
+
+init_db()
 
 # Main loop
 try:
@@ -105,6 +108,7 @@ try:
                         print("Set ram distance")
                         time.sleep(3)  # wait for ram to stop
                         sRamdistance = sDistance - sBaleLength_Stroke[0] - sBaleLength_Stroke[1] - sBaleLength_Stroke[2] - sBaleLength_Stroke[3] - sBaleLength_Stroke[4] - sBaleLength_Stroke[5] - sBaleLength_Stroke[6] - sBaleLength_Stroke[7] - sBaleLength_Stroke[8] - sBaleLength_Stroke[9]
+                        sRamdistance = round(sRamdistance, 2)
                         for i in range(10):
                             if sBaleLength_Stroke[i] == 0:
                                 sBaleLength_Stroke[i] = round(sRamdistance, 2)
@@ -154,6 +158,23 @@ try:
             # Print results
             print(f"{timestamp} | data_valid: {data_valid} | BaleNumber i/s: {sBaleNumber, iBaleNumber} | sBaleReady: {sBaleReady} | iRamGoesForward: {iRamGoesForward} | EncoderDisRaw: {words[2]:04d} |" 
                 f" Rounds: {rounds} | Distance: {sDistance} | sRamdistance: {sRamdistance} | StrokeLength: {sBaleLength_Stroke[:]} | qBaleNumber {state.BaleNumber} | qBale_Length: {qBale_length_Encoder} | qStrokeLength {qBaleLength_Stroke[:]}")
+
+            insert_sample(
+                ts=timestamp,
+                data_valid=(data_valid == "YES"),
+                bale_s=int(sBaleNumber) if sBaleNumber is not None else None,
+                bale_i=int(iBaleNumber) if iBaleNumber is not None else None,
+                bale_ready=bool(sBaleReady),
+                ram_forward=bool(iRamGoesForward),
+                encoder_raw=int(words[2]) if words and len(words) > 2 else None,
+                rounds=float(rounds) if rounds is not None else None,
+                distance=float(sDistance) if sDistance is not None else None,
+                ram_distance=float(sRamdistance) if sRamdistance is not None else None,
+                stroke_list=[float(x) for x in sBaleLength_Stroke],
+                q_bale_number=int(qBaleNumber) if qBaleNumber is not None else None,
+                q_bale_length=float(qBale_length_Encoder) if qBale_length_Encoder is not None else None,
+                q_stroke_list=[float(x) for x in qBaleLength_Stroke],
+            )
 
         time.sleep(0.1)
 finally:

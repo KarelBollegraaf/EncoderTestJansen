@@ -6,5 +6,6 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
-CMD ["python", "TestEncoderJanssenV3.py"]
 
+EXPOSE 8000
+CMD ["python", "run_all.py"]
