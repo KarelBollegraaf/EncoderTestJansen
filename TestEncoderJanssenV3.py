@@ -139,7 +139,7 @@ while True:
                 # Store ram stroke length when falling edge happens
                 if sBaleNumber == iBaleNumber:
                     print("Set ram distance")
-                    time.sleep(0.3)  # small settle time (was 3s; keep short to avoid "looks stuck")
+                    time.sleep(1)  # small settle time 
 
                     # distance since last strokes
                     sRamdistance = sDistance - sum(sBaleLength_Stroke)
